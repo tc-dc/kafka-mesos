@@ -376,7 +376,7 @@ object Scheduler extends org.apache.mesos.Scheduler {
   private def checkMesosVersion(master: MasterInfo): Unit = {
     if (master == null) return
 
-    val minVersion: Version = new Version("0.23.0")
+    val minVersion: Version = new Version("0.22.0")
     var version: Version = if (master.getVersion != null) new Version(master.getVersion) else null
 
     if (version == null || version.compareTo(minVersion) < 0) {
