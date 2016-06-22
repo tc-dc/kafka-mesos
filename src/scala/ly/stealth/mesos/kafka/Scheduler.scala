@@ -89,7 +89,8 @@ object Scheduler extends org.apache.mesos.Scheduler {
         "log.retention.bytes" -> ("" + 10l * 1024 * 1024 * 1024),
 
         "zookeeper.connect" -> Config.zk,
-        "host.name" -> offer.getHostname
+        "host.name" -> offer.getHostname,
+        "advertised.host.name" -> offer.getHostname
       )
 
       if (HttpServer.kafkaVersion.compareTo(new Version("0.9")) >= 0)
