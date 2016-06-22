@@ -68,6 +68,10 @@ object Scheduler extends org.apache.mesos.Scheduler {
       .addUris(CommandInfo.URI.newBuilder().setValue(Config.api + "/kafka/" + HttpServer.kafkaDist.getName))
       .setValue(cmd)
 
+    for (resource <- Config.executorResources) {
+      commandBuilder.addUris(CommandInfo.URI.newBuilder().setValue(resource).setExtract(false))
+    }
+
     ExecutorInfo.newBuilder()
       .setExecutorId(ExecutorID.newBuilder.setValue(Broker.nextExecutorId(broker)))
       .setCommand(commandBuilder)

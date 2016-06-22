@@ -21,7 +21,7 @@ import java.io.{FileInputStream, File}
 import java.util.Properties
 import java.net.URI
 import ly.stealth.mesos.kafka.Util.BindAddress
-import net.elodina.mesos.util.Period
+import net.elodina.mesos.util.{Period, Strings}
 
 object Config {
   val DEFAULT_FILE = new File("kafka-mesos.properties")
@@ -37,6 +37,8 @@ object Config {
   var frameworkName: String = "kafka"
   var frameworkRole: String = "*"
   var frameworkTimeout: Period = new Period("30d")
+
+  var executorResources = List[String]()
 
   var jre: File = null
   var log: File = null
@@ -76,6 +78,8 @@ object Config {
     if (props.containsKey("framework-name")) frameworkName = props.getProperty("framework-name")
     if (props.containsKey("framework-role")) frameworkRole = props.getProperty("framework-role")
     if (props.containsKey("framework-timeout")) frameworkTimeout = new Period(props.getProperty("framework-timeout"))
+
+    if (props.containsKey("executor-resources")) executorResources = props.getProperty("executor-resources").split(',').map(_.trim).toList
 
     if (props.containsKey("jre")) jre = new File(props.getProperty("jre"))
     if (props.containsKey("log")) log = new File(props.getProperty("log"))
