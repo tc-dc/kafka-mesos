@@ -39,6 +39,7 @@ object Config {
   var frameworkTimeout: Period = new Period("30d")
 
   var executorResources = List[String]()
+  var executorExtractedResources = List[String]()
 
   var jre: File = null
   var log: File = null
@@ -80,6 +81,7 @@ object Config {
     if (props.containsKey("framework-timeout")) frameworkTimeout = new Period(props.getProperty("framework-timeout"))
 
     if (props.containsKey("executor-resources")) executorResources = props.getProperty("executor-resources").split(',').map(_.trim).toList
+    if (props.containsKey("executor-extracted-resources")) executorExtractedResources = props.getProperty("executor-extracted-resources").split(',').map(_.trim).toList
 
     if (props.containsKey("jre")) jre = new File(props.getProperty("jre"))
     if (props.containsKey("log")) log = new File(props.getProperty("log"))

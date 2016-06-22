@@ -71,6 +71,9 @@ object Scheduler extends org.apache.mesos.Scheduler {
     for (resource <- Config.executorResources) {
       commandBuilder.addUris(CommandInfo.URI.newBuilder().setValue(resource).setExtract(false))
     }
+    for (resource <- Config.executorExtractedResources) {
+      commandBuilder.addUris(CommandInfo.URI.newBuilder().setValue(resource).setExtract(true))
+    }
 
     ExecutorInfo.newBuilder()
       .setExecutorId(ExecutorID.newBuilder.setValue(Broker.nextExecutorId(broker)))

@@ -284,6 +284,11 @@ object Cli {
       parser.accepts("log", "Log file to use. Default - stdout.")
         .withRequiredArg().ofType(classOf[String])
 
+      parser.accepts("executor-resources", "Extra resources to download into the mesos sandbox.")
+        .withOptionalArg().ofType(classOf[String])
+
+      parser.accepts("executor-extracted-resources", "Extra resources to download into the mesos sandbox (and extract).")
+        .withOptionalArg().ofType(classOf[String])
 
       val configArg = parser.nonOptions()
 
@@ -366,6 +371,15 @@ object Cli {
       val log = options.valueOf("log").asInstanceOf[String]
       if (log != null) Config.log = new File(log)
       if (Config.log != null) printLine(s"Logging to ${Config.log}")
+
+      val executorResources = options.valueOf("executor-resources").asInstanceOf[String]
+      if (executorResources != null) {
+        Config.executorResources = executorResources.split(',').map(_.trim).toList
+      }
+      val executorExtractedResources = options.valueOf("executor-extracted-resources").asInstanceOf[String]
+      if (executorExtractedResources != null) {
+        Config.executorExtractedResources = executorExtractedResources.split(',').map(_.trim).toList
+      }
 
       Scheduler.start()
     }
