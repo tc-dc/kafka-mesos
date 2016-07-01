@@ -922,7 +922,7 @@ object Cli {
       }
 
       cmd match {
-        case "list" => handleList(arg)
+        case "list" => handleList(arg, args)
         case "add" | "update" => handleAddUpdate(arg, args, cmd == "add")
         case "rebalance" => handleRebalance(arg, args)
         case "partitions" => handlePartitions(arg)
@@ -939,7 +939,7 @@ object Cli {
           printLine()
           printLine("Run `help topic <command>` to see details of specific command")
         case "list" =>
-          handleList(null, help = true)
+          handleList(null, null, help = true)
         case "add" | "update" =>
           handleAddUpdate(null, null, cmd == "add", help = true)
         case "rebalance" =>
@@ -951,7 +951,11 @@ object Cli {
       }
     }
 
-    def handleList(expr: String, help: Boolean = false): Unit = {
+    def handleList(expr: String, args: Array[String], help: Boolean = false): Unit = {
+      val parser = newParser()
+      parser.accepts("quiet", "Displays a less verbose list of topics.  Default - false")
+        .withOptionalArg()
+
       if (help) {
         printLine("List topics\nUsage: topic list [<topic-expr>]\n")
         handleGenericOptions(null, help = true)
@@ -962,6 +966,7 @@ object Cli {
         return
       }
 
+      val options = parser.parse(args: _*)
       val params = new util.LinkedHashMap[String, String]
       if (expr != null) params.put("topic", expr)
 
@@ -973,12 +978,18 @@ object Cli {
       val title: String = if (topicsNodes.isEmpty) "no topics" else "topic" + (if (topicsNodes.size > 1) "s" else "") + ":"
       printLine(title)
 
+      val quiet = options.has("quiet")
       for (topicNode <- topicsNodes) {
         val topic = new Topic()
         topic.fromJson(topicNode)
 
-        printTopic(topic, 1)
-        printLine()
+        if (quiet) {
+          printLine(topic.name, 1)
+        }
+        else {
+          printTopic(topic, 1)
+          printLine()
+        }
       }
     }
 
@@ -1126,16 +1137,18 @@ object Cli {
       try { json = sendRequest("/partition/list", params) }
       catch { case e: IOException => throw new Error("" + e) }
 
-      val partitionNodes: List[Map[String, Object]] = json("partitions").asInstanceOf[List[Map[String, Object]]]
-      val partitions = partitionNodes.map(p => new Partition().fromJson(p))
-      printLine("  part | leader | expected | brokers (*not-isr)", 1)
-      for (p <- partitions) {
-        val isr = p.isr.toSet
-        val brokerIsrs = p.replicas.map(b => if (isr.contains(b)) b.toString else s"*$b")
-        val displayIsr = s"[${brokerIsrs.mkString(", ")}]"
-        val errorString = if (isr != p.replicas.toSet) "!" else " "
+      printLine("  part | leader | expected | brokers (*not-isr)", 2)
+      for ((topic, partitionNode) <- json) {
+        printLine(s"$topic:")
+        val partitions = partitionNode.asInstanceOf[List[Map[String, Object]]].map(p => new Partition().fromJson(p))
+        for (p <- partitions) {
+          val isr = p.isr.toSet
+          val brokerIsrs = p.replicas.map(b => if (isr.contains(b)) b.toString else s"*$b")
+          val displayIsr = s"[${brokerIsrs.mkString(", ")}]"
+          val errorString = if (isr != p.replicas.toSet) "!" else " "
 
-        printLine(f"$errorString ${p.id}%4d | ${p.leader}%6d | ${p.expectedLeader}%8d | $displayIsr", 1)
+          printLine(f"$errorString ${p.id}%4d | ${p.leader}%6d | ${p.expectedLeader}%8d | $displayIsr", 2)
+        }
       }
     }
 
