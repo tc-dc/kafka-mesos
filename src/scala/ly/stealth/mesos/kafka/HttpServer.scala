@@ -364,7 +364,11 @@ object HttpServer {
       }
 
       for (broker <- brokers) {
-        broker.active = start
+        if (start) {
+          Scheduler.activateBroker(broker)
+        } else {
+          broker.active = start
+        }
         broker.failover.resetFailures()
         if (!start && force) Scheduler.forciblyStopBroker(broker)
       }
@@ -422,6 +426,7 @@ object HttpServer {
         broker.failover.resetFailures()
         val begin = System.currentTimeMillis()
         cluster.save()
+        Scheduler.syncBrokers(Seq())
 
         if (!broker.waitFor(null, timeout)) {
           response.getWriter.println("" + timeoutJson(broker, "stop"))
@@ -431,7 +436,7 @@ object HttpServer {
         val startTimeout = new Period(Math.max(timeout.ms - (System.currentTimeMillis() - begin), 0L) + "ms")
 
         // start
-        broker.active = true
+        Scheduler.activateBroker(broker)
         cluster.save()
 
         val startBegin = System.currentTimeMillis()
