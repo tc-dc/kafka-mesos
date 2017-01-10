@@ -21,7 +21,6 @@ import java.util.concurrent.{TimeUnit, TimeoutException}
 import javax.ws.rs.core.{MediaType, Response}
 import javax.ws.rs.{Produces, _}
 import ly.stealth.mesos.kafka.Broker.State
-import ly.stealth.mesos.kafka.Util.BindAddress
 import ly.stealth.mesos.kafka._
 import ly.stealth.mesos.kafka.RunnableConversions._
 import ly.stealth.mesos.kafka.scheduler.http.BothParam
@@ -88,6 +87,7 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
       @BothParam("mem") mem: JLong,
       @BothParam("heap") heap: JLong,
       @BothParam("port") port: Range,
+      @BothParam("jmxPort") jmxPort: Range,
       @BothParam("volume") volume: String,
       @BothParam("bindAddress") bindAddress: BindAddress,
       @BothParam("syslog") syslog: JBool,
@@ -113,11 +113,11 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
         var broker = cluster.getBroker(id)
 
         if (add)
-          if (broker != null) errors.add(s"Broker $id already exists")
+          if (broker != null) errors.append(s"Broker $id already exists")
           else broker = new Broker(id)
-        else if (broker == null) errors.add(s"Broker $id not found")
+        else if (broker == null) errors.append(s"Broker $id not found")
 
-        brokers.add(broker)
+        brokers.append(broker)
       }
 
       if (errors.nonEmpty) {
@@ -129,6 +129,7 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
         if (mem != null) broker.mem = mem
         if (heap != null) broker.heap = heap
         if (port != null) broker.port = port
+        if (jmxPort != null) broker.jmxPort = jmxPort
         if (volume != null) broker.volume = volume
         if (bindAddress != null) broker.bindAddress = bindAddress
         if (syslog != null) broker.syslog = syslog

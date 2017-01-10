@@ -25,9 +25,8 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 import com.fasterxml.jackson.databind.module.SimpleModule
 import com.fasterxml.jackson.databind.ser.std.StdSerializer
-import ly.stealth.mesos.kafka.{Broker, Cluster, Topic}
+import ly.stealth.mesos.kafka.{BindAddress, Broker, Cluster, Topic}
 import ly.stealth.mesos.kafka.Broker._
-import ly.stealth.mesos.kafka.Util.BindAddress
 import net.elodina.mesos.util.{Constraint, Period, Range, Strings}
 import scala.collection.JavaConversions._
 import scala.collection.JavaConverters._
@@ -48,7 +47,7 @@ class BindAddressDeserializer extends StdDeserializer[BindAddress](classOf[BindA
 
 case class BrokerModel(
                         id: String, active: Boolean, cpus: Double, mem: Long, heap: Long,
-                        port: Range, volume: String, bindAddress: BindAddress, syslog: Boolean,
+                        port: Range, jmxPort: Range, volume: String, bindAddress: BindAddress, syslog: Boolean,
                         constraints: String,
                         options: String, log4jOptions: String, jvmOptions: String,
                         stickiness: Stickiness, failover: Failover, task: Task,
@@ -65,7 +64,7 @@ class BrokerSerializer extends StdSerializer[Broker](classOf[Broker]) {
       }
 
     provider.defaultSerializeValue(BrokerModel(
-      b.id, b.active, b.cpus, b.mem, b.heap, b.port, b.volume, b.bindAddress, b.syslog,
+      b.id, b.active, b.cpus, b.mem, b.heap, b.port, b.jmxPort, b.volume, b.bindAddress, b.syslog,
       Strings.formatMap(b.constraints), Strings.formatMap(b.options), Strings.formatMap(b.log4jOptions),
       b.jvmOptions, b.stickiness, b.failover, b.task, metrics, b.needsRestart
     ), gen)
@@ -82,6 +81,7 @@ class BrokerDeserializer extends StdDeserializer[Broker](classOf[Broker]) {
     b.mem = model.mem
     b.heap = model.heap
     b.port = model.port
+    b.jmxPort = model.jmxPort
     b.volume = model.volume
     b.bindAddress = model.bindAddress
     b.syslog = model.syslog

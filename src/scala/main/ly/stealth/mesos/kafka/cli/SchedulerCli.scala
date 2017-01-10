@@ -18,8 +18,7 @@ package ly.stealth.mesos.kafka.cli
 
 import java.io.File
 import ly.stealth.mesos.kafka.cli.Cli.Error
-import ly.stealth.mesos.kafka.Config
-import ly.stealth.mesos.kafka.Util.BindAddress
+import ly.stealth.mesos.kafka.{BindAddress, Config}
 import ly.stealth.mesos.kafka.scheduler.ProductionRegistry
 import ly.stealth.mesos.kafka.scheduler.mesos.KafkaMesosScheduler
 import net.elodina.mesos.util.Period

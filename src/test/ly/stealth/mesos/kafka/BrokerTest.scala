@@ -23,7 +23,6 @@ import org.apache.mesos.Protos.Resource.DiskInfo.{Persistence, Source}
 import org.apache.mesos.Protos.Resource.DiskInfo.Source.{Mount, Type}
 import org.junit.{Before, Test}
 import org.junit.Assert._
-import ly.stealth.mesos.kafka.Util.BindAddress
 import net.elodina.mesos.util.{Constraint, Period, Range}
 import net.elodina.mesos.util.Strings.parseMap
 import java.util.{Collections, Date}
@@ -32,7 +31,7 @@ import ly.stealth.mesos.kafka.Broker.{Endpoint, Failover, State, Stickiness, Tas
 import java.util
 import ly.stealth.mesos.kafka.executor.LaunchConfig
 import ly.stealth.mesos.kafka.json.JsonUtil
-import ly.stealth.mesos.kafka.scheduler.mesos.OfferResult
+import ly.stealth.mesos.kafka.scheduler.mesos.{OfferManager, OfferResult, Reservation}
 import org.apache.mesos.Protos.{Offer, Resource, Value, Volume}
 
 class BrokerTest extends KafkaMesosTestCase {
@@ -81,33 +80,38 @@ class BrokerTest extends KafkaMesosTestCase {
     // cpus
     broker.cpus = 0.5
     var theOffer = offer("cpus:0.2; cpus(role):0.3; ports:1000")
-    BrokerTest.assertAccept(broker.matches(theOffer))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, theOffer))
 
     theOffer = offer("cpus:0.2; cpus(role):0.2")
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "cpus < 0.5"),
-      broker.matches(theOffer))
+      OfferManager.brokerMatches(broker, theOffer))
     broker.cpus = 0
 
     // mem
     broker.mem = 100
     theOffer = offer("mem:70; mem(role):30; ports:1000")
-    BrokerTest.assertAccept(broker.matches(theOffer))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, theOffer))
 
     theOffer = offer("mem:70; mem(role):29")
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "mem < 100"),
-      broker.matches(theOffer))
+      OfferManager.brokerMatches(broker, theOffer))
     broker.mem = 0
 
     // port
     theOffer = offer("ports:1000")
-    BrokerTest.assertAccept(broker.matches(theOffer))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, theOffer))
+
+    // port + jmx
+    broker.jmxPort = new Range("0..65535")
+    theOffer = offer("ports:1000..1001")
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, theOffer))
 
     theOffer = offer("")
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "no suitable port"),
-      broker.matches(theOffer))
+      OfferManager.brokerMatches(broker, theOffer))
   }
 
   @Test
@@ -115,47 +119,47 @@ class BrokerTest extends KafkaMesosTestCase {
     val now = new Date(0)
     val resources: String = "ports:0..10"
 
-    BrokerTest.assertAccept(broker.matches(offer("master", resources)))
-    BrokerTest.assertAccept(broker.matches(offer("slave", resources)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("master", resources)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("slave", resources)))
 
     // token
     broker.constraints = parseMap("hostname=like:master").mapValues(new Constraint(_)).toMap
     var theOffer = offer("master", resources)
-    BrokerTest.assertAccept(broker.matches(theOffer))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, theOffer))
 
     theOffer = offer("slave", resources)
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "hostname doesn't match like:master"),
-      broker.matches(theOffer))
+      OfferManager.brokerMatches(broker, theOffer))
 
     // like
     broker.constraints = parseMap("hostname=like:master.*").mapValues(new Constraint(_)).toMap
-    BrokerTest.assertAccept(broker.matches(offer("master", resources)))
-    BrokerTest.assertAccept(broker.matches(offer("master-2", resources)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("master", resources)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("master-2", resources)))
     theOffer = offer("slave", resources)
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "hostname doesn't match like:master.*"),
-      broker.matches(theOffer))
+      OfferManager.brokerMatches(broker, theOffer))
 
     // unique
     broker.constraints = parseMap("hostname=unique").mapValues(new Constraint(_)).toMap
     theOffer = offer("master", resources)
-    BrokerTest.assertAccept(broker.matches(theOffer))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, theOffer))
 
     theOffer = offer("master", resources)
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "hostname doesn't match unique"),
-      broker.matches(theOffer, now, _ => util.Arrays.asList("master")))
-    BrokerTest.assertAccept(broker.matches(offer("master", resources), now, _ => util.Arrays.asList("slave")))
+      OfferManager.brokerMatches(broker, theOffer, now, _ => util.Arrays.asList("master")))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("master", resources), now, _ => util.Arrays.asList("slave")))
 
     // groupBy
     broker.constraints = parseMap("hostname=groupBy").mapValues(new Constraint(_)).toMap
-    BrokerTest.assertAccept(broker.matches(offer("master", resources)))
-    BrokerTest.assertAccept(broker.matches(offer("master", resources), now, _ => util.Arrays.asList("master")))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("master", resources)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("master", resources), now, _ => util.Arrays.asList("master")))
     theOffer = offer("master", resources)
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "hostname doesn't match groupBy"),
-      broker.matches(theOffer, now, _ => util.Arrays.asList("slave")))
+      OfferManager.brokerMatches(broker, theOffer, now, _ => util.Arrays.asList("slave")))
   }
 
   @Test
@@ -165,20 +169,20 @@ class BrokerTest extends KafkaMesosTestCase {
     val resources = "ports:0..10"
 
 
-    BrokerTest.assertAccept(broker.matches(offer(host0, resources), new Date(0)))
-    BrokerTest.assertAccept(broker.matches(offer(host1, resources), new Date(0)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer(host0, resources), new Date(0)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer(host1, resources), new Date(0)))
 
     broker.registerStart(host0)
     broker.registerStop(new Date(0))
 
 
-    BrokerTest.assertAccept(broker.matches(offer(host0, resources), new Date(0)))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer(host0, resources), new Date(0)))
     val theOffer = offer(host1, resources)
     assertEquals(
       OfferResult.eventuallyMatch(
         theOffer, broker,
         "hostname != stickiness host", broker.stickiness.period.ms().toInt / 1000),
-      broker.matches(theOffer, new Date(0)))
+      OfferManager.brokerMatches(broker, theOffer, new Date(0)))
   }
 
   @Test
@@ -189,21 +193,21 @@ class BrokerTest extends KafkaMesosTestCase {
 
     // like
     broker.constraints = parseMap("rack=like:1-.*").mapValues(new Constraint(_)).toMap
-    BrokerTest.assertAccept(broker.matches(offer("rack=1-1")))
-    BrokerTest.assertAccept(broker.matches(offer("rack=1-2")))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("rack=1-1")))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("rack=1-2")))
     var theOffer = offer("rack=2-1")
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "rack doesn't match like:1-.*"),
-      broker.matches(theOffer))
+      OfferManager.brokerMatches(broker, theOffer))
 
     // groupBy
     broker.constraints = parseMap("rack=groupBy").mapValues(new Constraint(_)).toMap
-    BrokerTest.assertAccept(broker.matches(offer("rack=1")))
-    BrokerTest.assertAccept(broker.matches(offer("rack=1"), now, _ => util.Arrays.asList("1")))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("rack=1")))
+    BrokerTest.assertAccept(OfferManager.brokerMatches(broker, offer("rack=1"), now, _ => util.Arrays.asList("1")))
     theOffer = offer("rack=2")
     assertEquals(
       OfferResult.neverMatch(theOffer, broker, "rack doesn't match groupBy"),
-      broker.matches(theOffer, now, _ => util.Arrays.asList("1")))
+      OfferManager.brokerMatches(broker, theOffer, now, _ => util.Arrays.asList("1")))
   }
 
   @Test
@@ -211,19 +215,19 @@ class BrokerTest extends KafkaMesosTestCase {
     broker.cpus = 2
     broker.mem = 200
     // ignore non-dynamically reserved disk
-    var reservation = broker.getReservation(offer("cpus:2; mem:100; ports:1000; disk:1000"))
+    var reservation = OfferManager.getReservation(broker, offer("cpus:2; mem:100; ports:1000; disk:1000"))
     assertEquals(resources("cpus:2; mem:100; ports:1000"), reservation.toResources)
 
     // Ignore resources with a principal
-    reservation = broker.getReservation(offer("cpus:2; mem:100; ports:1000; mem(*,principal):100"))
+    reservation = OfferManager.getReservation(broker, offer("cpus:2; mem:100; ports:1000; mem(*,principal):100"))
     assertEquals(resources("cpus:2; mem:100; ports:1000"), reservation.toResources)
 
     // Ignore resources with a principal + role
-    reservation = broker.getReservation(offer("cpus:2; mem:100; ports:1000; mem(role,principal):100"))
+    reservation = OfferManager.getReservation(broker, offer("cpus:2; mem:100; ports:1000; mem(role,principal):100"))
     assertEquals(resources("cpus:2; mem:100; ports:1000"), reservation.toResources)
 
     // pay attention resources with a role
-    reservation = broker.getReservation(offer("cpus:2; mem:100; ports:1000; mem(role):100"))
+    reservation = OfferManager.getReservation(broker, offer("cpus:2; mem:100; ports:1000; mem(role):100"))
     assertEquals(resources("cpus:2; mem:100; mem(role):100; ports:1000"), reservation.toResources)
   }
 
@@ -233,7 +237,7 @@ class BrokerTest extends KafkaMesosTestCase {
     broker.mem = 200
     broker.volume = "test"
 
-    val reservation = broker.getReservation(offer("cpus:2; mem:100; ports:1000; disk(role,principal)[test:mount_point]:100"))
+    val reservation = OfferManager.getReservation(broker, offer("cpus:2; mem:100; ports:1000; disk(role,principal)[test:mount_point]:100"))
     val resource = resources("cpus:2; mem:100; ports:1000; disk(role,principal)[test:data]:100")
     assertEquals(resource, reservation.toResources)
   }
@@ -275,7 +279,7 @@ class BrokerTest extends KafkaMesosTestCase {
       addResources(persistentVolumeResource).
       build()
 
-    val reservation = broker.getReservation(thisOffer)
+    val reservation = OfferManager.getReservation(broker, thisOffer)
 
     assertEquals(reservation.diskSource, persistentVolumeResource.getDisk().getSource())
   }
@@ -286,28 +290,34 @@ class BrokerTest extends KafkaMesosTestCase {
     broker.mem = 100
 
     // shared resources
-    var reservation = broker.getReservation(offer("cpus:3; mem:200; ports:1000..2000"))
+    var reservation = OfferManager.getReservation(broker, offer("cpus:3; mem:200; ports:1000..2000"))
     assertEquals(resources("cpus:2; mem:100; ports:1000"), reservation.toResources)
 
     // role resources
-    reservation = broker.getReservation(offer("cpus(role):3; mem(role):200; ports(role):1000..2000"))
+    reservation = OfferManager.getReservation(broker, offer("cpus(role):3; mem(role):200; ports(role):1000..2000"))
     assertEquals(resources("cpus(role):2; mem(role):100; ports(role):1000"), reservation.toResources)
 
     // mixed resources
-    reservation = broker.getReservation(offer("cpus:2; cpus(role):1; mem:100; mem(role):99; ports:1000..2000; ports(role):3000"))
-    assertEquals(resources("cpus:1; cpus(role):1; mem:1; mem(role):99; ports(role):3000"), reservation.toResources)
+    reservation = OfferManager.getReservation(broker, offer("cpus:2; cpus(role):1; mem:100; mem(role):99; ports:1000..2000; ports(role):3000"))
+    assertEquals(resources("cpus:1; cpus(role):1; mem:1; mem(role):99; ports:1000"), reservation.toResources)
 
     // not enough resources
-    reservation = broker.getReservation(offer("cpus:0.5; cpus(role):0.5; mem:1; mem(role):1; ports:1000"))
+    reservation = OfferManager.getReservation(broker, offer("cpus:0.5; cpus(role):0.5; mem:1; mem(role):1; ports:1000"))
     assertEquals(resources("cpus:0.5; cpus(role):0.5; mem:1; mem(role):1; ports:1000"), reservation.toResources)
 
     // no port
-    reservation = broker.getReservation(offer(""))
-    assertEquals(-1, reservation.port)
+    reservation = OfferManager.getReservation(broker, offer(""))
+    assertEquals(None, reservation.port)
+
+    // port + jmx port
+    broker.jmxPort = new Range("0..65535")
+    reservation = OfferManager.getReservation(broker, offer("cpus:3; mem:200; ports:1000..2000"))
+    assertEquals(resources("cpus:2; mem:100; ports:1000; ports:1001"), reservation.toResources)
+
 
     // two non-default roles
     try {
-      broker.getReservation(offer("cpus(r1):0.5; mem(r2):100"))
+      OfferManager.getReservation(broker, offer("cpus(r1):0.5; mem(r2):100"))
       fail()
     } catch {
       case e: IllegalArgumentException =>
@@ -319,36 +329,36 @@ class BrokerTest extends KafkaMesosTestCase {
 
   @Test
   def getSuitablePort {
-    def ranges(s: String): util.List[Range] = {
-      if (s.isEmpty) return Collections.emptyList()
-      s.split(",").toList.map(s => new Range(s.trim))
+    def ranges(s: String): Set[Int] = {
+      if (s.isEmpty) return Set()
+      new RangeSet(s.split(",").map {s => new Range(s.trim) }.map { r => scala.Range.inclusive(r.start(), r.end()) })
     }
 
     // no port restrictions
-    assertEquals(-1, broker.getSuitablePort(ranges("")))
-    assertEquals(100, broker.getSuitablePort(ranges("100..100")))
-    assertEquals(100, broker.getSuitablePort(ranges("100..200")))
+    assertEquals(None, OfferManager.getSuitablePort(ranges(""), broker.port))
+    assertEquals(Some(100), OfferManager.getSuitablePort(ranges("100..100"), broker.port))
+    assertEquals(Some(100), OfferManager.getSuitablePort(ranges("100..200"), broker.port))
 
     // order
-    assertEquals(10, broker.getSuitablePort(ranges("30,10,20,40")))
-    assertEquals(50, broker.getSuitablePort(ranges("100..200, 50..60")))
+    assertEquals(Some(10), OfferManager.getSuitablePort(ranges("30,10,20,40"), broker.port))
+    assertEquals(Some(50), OfferManager.getSuitablePort(ranges("100..200, 50..60"), broker.port))
 
     // single port restriction
     broker.port = new Range(92)
-    assertEquals(-1, broker.getSuitablePort(ranges("0..91")))
-    assertEquals(-1, broker.getSuitablePort(ranges("93..100")))
-    assertEquals(92, broker.getSuitablePort(ranges("90..100")))
+    assertEquals(None, OfferManager.getSuitablePort(ranges("0..91"), broker.port))
+    assertEquals(None, OfferManager.getSuitablePort(ranges("93..100"), broker.port))
+    assertEquals(Some(92), OfferManager.getSuitablePort(ranges("90..100"), broker.port))
 
     // port range restriction
     broker.port = new Range("92..100")
-    assertEquals(-1, broker.getSuitablePort(ranges("0..91")))
-    assertEquals(-1, broker.getSuitablePort(ranges("101..200")))
-    assertEquals(92, broker.getSuitablePort(ranges("0..100")))
-    assertEquals(92, broker.getSuitablePort(ranges("0..92")))
+    assertEquals(None, OfferManager.getSuitablePort(ranges("0..91"), broker.port))
+    assertEquals(None, OfferManager.getSuitablePort(ranges("101..200"), broker.port))
+    assertEquals(Some(92), OfferManager.getSuitablePort(ranges("0..100"), broker.port))
+    assertEquals(Some(92), OfferManager.getSuitablePort(ranges("0..92"), broker.port))
 
-    assertEquals(100, broker.getSuitablePort(ranges("100..200")))
-    assertEquals(95, broker.getSuitablePort(ranges("0..90,95..96,101..200")))
-    assertEquals(96, broker.getSuitablePort(ranges("0..90,96,101..200")))
+    assertEquals(Some(100), OfferManager.getSuitablePort(ranges("100..200"), broker.port))
+    assertEquals(Some(95), OfferManager.getSuitablePort(ranges("0..90,95..96,101..200"), broker.port))
+    assertEquals(Some(96), OfferManager.getSuitablePort(ranges("0..90,96,101..200"), broker.port))
   }
 
   @Test
@@ -447,7 +457,7 @@ class BrokerTest extends KafkaMesosTestCase {
     broker.heap = 128
     broker.port = new Range("0..100")
     broker.volume = "volume"
-    broker.bindAddress = new Util.BindAddress("192.168.0.1")
+    broker.bindAddress = new BindAddress("192.168.0.1")
     broker.syslog = true
 
     broker.constraints = parseMap("a=like:1").mapValues(new Constraint(_)).toMap
@@ -456,7 +466,7 @@ class BrokerTest extends KafkaMesosTestCase {
     broker.jvmOptions = "-Xms512m"
 
     broker.failover.registerFailure(new Date())
-    broker.task = new Task("1", "slave", "executor", "host")
+    broker.task = Task("1", "slave", "executor", "host")
 
     val read = JsonUtil.fromJson[Broker](JsonUtil.toJson(broker))
 
@@ -474,16 +484,20 @@ class BrokerTest extends KafkaMesosTestCase {
   @Test
   def Reservation_toResources {
     // shared
-    var reservation = new Broker.Reservation(null, sharedCpus = 0.5, sharedMem = 100, sharedPort = 1000)
+    var reservation = new Reservation(null, sharedCpus = 0.5, sharedMem = 100, port = Some(1000), sharedPorts = Set(1000))
     assertEquals(resources("cpus:0.5; mem:100; ports:1000"), reservation.toResources)
 
     // role
-    reservation = new Broker.Reservation("role", roleCpus = 0.5, roleMem = 100, rolePort = 1000)
+    reservation = new Reservation("role", roleCpus = 0.5, roleMem = 100, port = Some(1000), rolePorts = Set(1000))
     assertEquals(resources("cpus(role):0.5; mem(role):100; ports(role):1000"), reservation.toResources)
 
     // shared + role
-    reservation = new Broker.Reservation("role", sharedCpus = 0.3, roleCpus = 0.7, sharedMem = 50, roleMem = 100, sharedPort = 1000, rolePort = 2000)
-    assertEquals(resources("cpus:0.3; cpus(role):0.7; mem:50; mem(role):100; ports:1000; ports(role):2000"), reservation.toResources)
+    reservation = new Reservation("role", sharedCpus = 0.3, roleCpus = 0.7, sharedMem = 50, roleMem = 100, port = Some(1000), sharedPorts = Set(1000))
+    assertEquals(resources("cpus:0.3; cpus(role):0.7; mem:50; mem(role):100; ports:1000"), reservation.toResources)
+
+    // port + jmx
+    reservation = new Reservation(null, sharedCpus = 0.5, sharedMem = 100, port = Some(1000), jmxPort = Some(2000), sharedPorts = Set(1000, 2000))
+    assertEquals(resources("cpus:0.5; mem:100; ports:1000; ports: 2000"), reservation.toResources)
   }
 
   // Stickiness

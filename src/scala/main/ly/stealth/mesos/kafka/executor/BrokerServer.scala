@@ -22,8 +22,7 @@ import java.net.{URL, URLClassLoader}
 import java.util
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicBoolean
-import ly.stealth.mesos.kafka.Util.BindAddress
-import ly.stealth.mesos.kafka.Broker
+import ly.stealth.mesos.kafka.{BindAddress, Broker}
 import net.elodina.mesos.util.{IO, Version}
 import org.apache.log4j.Logger
 import scala.collection.JavaConversions._

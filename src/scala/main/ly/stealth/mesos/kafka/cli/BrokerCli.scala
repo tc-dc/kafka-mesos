@@ -180,6 +180,7 @@ trait BrokerCli {
       parser.accepts("mem", "mem amount in Mb").withRequiredArg().ofType(classOf[java.lang.Long])
       parser.accepts("heap", "heap amount in Mb").withRequiredArg().ofType(classOf[java.lang.Long])
       parser.accepts("port", "port or range (31092, 31090..31100). Default - auto").withRequiredArg().ofType(classOf[java.lang.String])
+      parser.accepts("jmx-port", "port or range (31092, 31090..31100). Default - auto").withRequiredArg().ofType(classOf[String])
       parser.accepts("volume", "pre-reserved persistent volume id").withRequiredArg().ofType(classOf[java.lang.String])
       parser.accepts("bind-address", "broker bind address (broker0, 192.168.50.*, if:eth1). Default - auto").withRequiredArg().ofType(classOf[java.lang.String])
       parser.accepts("syslog", "enable syslog logging. Default - false").withRequiredArg().ofType(classOf[java.lang.String])
@@ -217,6 +218,7 @@ trait BrokerCli {
       val mem = options.valueOf("mem").asInstanceOf[java.lang.Long]
       val heap = options.valueOf("heap").asInstanceOf[java.lang.Long]
       val port = options.valueOf("port").asInstanceOf[String]
+      val jmxPort = options.valueOf("jmx-port").asInstanceOf[String]
       val volume = options.valueOf("volume").asInstanceOf[String]
       val bindAddress = options.valueOf("bind-address").asInstanceOf[String]
       val syslog = options.valueOf("syslog").asInstanceOf[String]
@@ -238,6 +240,7 @@ trait BrokerCli {
       if (mem != null) params.put("mem", "" + mem)
       if (heap != null) params.put("heap", "" + heap)
       if (port != null) params.put("port", port)
+      if (jmxPort != null) params.put("jmxPort", jmxPort)
       if (volume != null) params.put("volume", volume)
       if (bindAddress != null) params.put("bindAddress", bindAddress)
       if (syslog != null) params.put("syslog", syslog)

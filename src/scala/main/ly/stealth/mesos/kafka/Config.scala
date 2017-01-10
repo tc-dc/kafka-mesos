@@ -20,7 +20,6 @@ package ly.stealth.mesos.kafka
 import java.io.{File, FileInputStream}
 import java.util.Properties
 import java.net.URI
-import ly.stealth.mesos.kafka.Util.BindAddress
 import net.elodina.mesos.util.{Period, Version}
 
 object SchedulerVersion {

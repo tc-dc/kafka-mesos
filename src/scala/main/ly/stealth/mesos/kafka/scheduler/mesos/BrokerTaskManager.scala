@@ -66,8 +66,7 @@ trait BrokerTaskManagerComponentImpl extends BrokerTaskManagerComponent {
       val offer = offerResult.offer
 
       broker.needsRestart = false
-      val reservation = broker.getReservation(offer)
-      val task_ = taskFactory.newTask(broker, offer, reservation)
+      val task_ = taskFactory.newTask(broker, offer, offerResult.reservation)
       val id = task_.getTaskId.getValue
 
       val attributes = offer.getAttributesList

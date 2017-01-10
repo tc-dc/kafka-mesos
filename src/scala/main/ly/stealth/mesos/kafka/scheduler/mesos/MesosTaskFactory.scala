@@ -30,7 +30,7 @@ trait MesosTaskFactoryComponent {
   val taskFactory: MesosTaskFactory
 
   trait MesosTaskFactory {
-    def newTask(broker: Broker, offer: Offer, reservation: Broker.Reservation): TaskInfo
+    def newTask(broker: Broker, offer: Offer, reservation: Reservation): TaskInfo
   }
 }
 
@@ -39,12 +39,15 @@ trait MesosTaskFactoryComponentImpl extends MesosTaskFactoryComponent {
 
   val taskFactory: MesosTaskFactory = new MesosTaskFactoryImpl
 
+  private val JMX_OPTIONS = "-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false"
+
   class MesosTaskFactoryImpl extends MesosTaskFactory {
-    private[kafka] def newExecutor(broker: Broker): ExecutorInfo = {
+    private[kafka] def newExecutor(broker: Broker, jmxPort: Option[Int]): ExecutorInfo = {
       val distInfo = kafkaDistribution.distInfo
       var cmd = "java -cp " + distInfo.jar.getName
       cmd += " -Xmx" + broker.heap + "m"
       if (broker.jvmOptions != null) cmd += " " + broker.jvmOptions.replace("$id", broker.id)
+      cmd += jmxPort.map(p => s" $JMX_OPTIONS -Dcom.sun.management.jmxremote.port=$p").getOrElse("")
 
       if (Config.debug) cmd += " -Ddebug"
       cmd += " ly.stealth.mesos.kafka.executor.Executor"
@@ -79,11 +82,11 @@ trait MesosTaskFactoryComponentImpl extends MesosTaskFactoryComponent {
         .build()
     }
 
-    def newTask(broker: Broker, offer: Offer, reservation: Broker.Reservation): TaskInfo = {
+    def newTask(broker: Broker, offer: Offer, reservation: Reservation): TaskInfo = {
       val taskData = {
         var defaults: Map[String, String] = Map(
           "broker.id" -> broker.id,
-          "port" -> ("" + reservation.port),
+          "port" -> ("" + reservation.port.get),
           "log.dirs" -> "kafka-logs",
           "log.retention.bytes" -> ("" + 10l * 1024 * 1024 * 1024),
 
@@ -92,7 +95,7 @@ trait MesosTaskFactoryComponentImpl extends MesosTaskFactoryComponent {
         )
 
         if (kafkaDistribution.distInfo.kafkaVersion.compareTo(new Version("0.9")) >= 0)
-          defaults += ("listeners" -> s"PLAINTEXT://:${ reservation.port }")
+          defaults += ("listeners" -> s"PLAINTEXT://:${ reservation.port.get }")
 
         if (reservation.volume != null)
           defaults += ("log.dirs" -> "data/kafka-logs")
@@ -112,7 +115,7 @@ trait MesosTaskFactoryComponentImpl extends MesosTaskFactoryComponent {
         .setTaskId(TaskID.newBuilder.setValue(Broker.nextTaskId(broker)).build)
         .setSlaveId(offer.getSlaveId)
         .setData(taskData)
-        .setExecutor(newExecutor(broker))
+        .setExecutor(newExecutor(broker, reservation.jmxPort))
 
       taskBuilder.addAllResources(reservation.toResources)
       taskBuilder.build

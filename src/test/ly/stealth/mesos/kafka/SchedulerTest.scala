@@ -43,7 +43,7 @@ class SchedulerTest extends KafkaMesosTestCase {
     broker.jvmOptions = "-Xms64m"
 
     val offer = this.offer("id", "fw-id", "slave", "host", s"cpus:${broker.cpus}; mem:${broker.mem}; ports:1000", "")
-    val reservation = broker.getReservation(offer)
+    val reservation = OfferManager.getReservation(broker, offer)
 
     val task = registry.taskFactory.newTask(broker, offer, reservation)
     assertEquals("slave", task.getSlaveId.getValue)

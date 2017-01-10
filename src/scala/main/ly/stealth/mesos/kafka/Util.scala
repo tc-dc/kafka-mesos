@@ -22,6 +22,7 @@ import scala.collection.JavaConversions._
 import java.io.{File, IOException}
 import java.net.{Inet4Address, InetAddress, NetworkInterface}
 import java.util.Date
+import scala.collection.{GenSet, mutable}
 
 trait Clock {
   def now(): Date
@@ -43,6 +44,168 @@ object RunnableConversions {
   implicit def fnToRunnable[T](fn: () => T): Runnable = new Runnable {
     override def run(): Unit = fn()
   }
+}
+
+object RangeSet {
+  def intersectRanges(r1: Range, r2: Range): Option[Range] = {
+    // 0..2 | 3..4
+    if (!(
+      r2.contains(r1.start)
+        || r2.contains(r1.end)
+        || r1.contains(r2.start)
+        || r1.contains(r2.end))) {
+      // No overlap
+      None
+    }
+    else {
+      val start = r1.start.max(r2.start)
+      val end = r1.end.min(r2.end)
+      val (_, bigger) = if (r1.end > r2.end) (r1, r2) else (r2, r1)
+
+      if (bigger.isInclusive)
+        Some(Range.inclusive(start, end))
+      else
+        Some(Range(start, end))
+    }
+  }
+
+  def isSuperset(r1: Range, r2: Range) = r1.contains(r2.start) && r1.contains(r2.end)
+
+  def overlap(r1: Range, r2: Range) = (r1.contains(r2.start)
+    || r1.contains(r2.end)
+    || r2.contains(r1.start)
+    || r2.contains(r1.end))
+
+  def unionRanges(r1: Range, r2: Range): Seq[Range] = {
+    if (isSuperset(r1, r2))
+      Seq(r1)
+    else if (isSuperset(r2, r1))
+      Seq(r2)
+    else {
+      if (!overlap(r1, r2))
+        Seq(r1, r2)
+      else {
+        val (_, bigger) = if (r1.end > r2.end) (r2, r1) else (r1, r2)
+        val start = r1.start.min(r2.start)
+        Seq(if (bigger.isInclusive)
+          Range.inclusive(start, bigger.end)
+        else
+          Range(start, bigger.end))
+      }
+    }
+  }
+}
+
+class RangeSet(private val ranges: Seq[Range] = Seq()) extends Set[Int] {
+  def this(r: Range) = this(Seq(r))
+
+  private lazy val sortedRanges = ranges.sortBy(_.start)
+
+  override def contains(elem: Int): Boolean = ranges.exists(_.contains(elem))
+
+  override def +(elem: Int): Set[Int] = {
+    if (contains(elem))
+      this
+    else
+      new RangeSet(ranges ++ Seq(Range.inclusive(elem, elem)))
+  }
+
+  override def -(elem: Int): Set[Int] = {
+    ranges.find(_.contains(elem)).map { r =>
+      val newRanges = ranges.filterNot(_.eq(r)) ++ Seq(
+        Range(r.start, elem),
+        if (r.isInclusive) Range.inclusive(elem + 1, r.end) else Range(elem + 1, r.end)
+      )
+      new RangeSet(newRanges)
+    }.getOrElse(this)
+  }
+
+  override def union(that: GenSet[Int]): Set[Int] = that match {
+    case other: RangeSet =>
+      val buffer = mutable.Buffer[Range]()
+      var allRanges = (other.ranges ++ ranges).sortBy(_.start)
+
+      while(allRanges.length > 1) {
+        allRanges match {
+          case r1 +: r2 +: rest =>
+            if (!RangeSet.overlap(r1, r2)) {
+              buffer.append(r1)
+              allRanges = Seq(r2) ++ rest
+            } else {
+              allRanges = RangeSet.unionRanges(r1, r2) ++ rest
+            }
+        }
+      }
+      new RangeSet(allRanges ++ buffer)
+    case _ => super.union(that)
+  }
+
+  override def intersect(that: GenSet[Int]): Set[Int] = that match {
+    case other: RangeSet =>
+      val overlaps = other.ranges.flatMap {
+        o => ranges.flatMap { r => RangeSet.intersectRanges(o, r) }
+      }
+      new RangeSet(overlaps)
+    case _ => super.intersect(that)
+  }
+
+  override def iterator: Iterator[Int] = sortedRanges.flatMap(_.toIterator).toIterator
+}
+
+class BindAddress(s: String) {
+  private def parse() = {
+    val idx = s.indexOf(":")
+    val (source, value) =
+      if (idx != -1) {
+        (s.substring(0, idx), s.substring(idx + 1))
+      } else
+        (null, s)
+
+    if (source != null && source != "if")
+      throw new IllegalArgumentException(s)
+
+    (source, value)
+  }
+
+  val (source, value) = parse()
+
+  def resolve(): String = {
+    source match {
+      case null => resolveAddress(value)
+      case "if" => resolveInterfaceAddress(value)
+      case _ => throw new IllegalStateException("Failed to resolve " + s)
+    }
+  }
+
+  def resolveAddress(addressOrMask: String): String = {
+    if (!addressOrMask.endsWith("*")) return addressOrMask
+    val prefix = addressOrMask.substring(0, addressOrMask.length - 1)
+
+    NetworkInterface.getNetworkInterfaces
+      .flatMap(_.getInetAddresses)
+      .find(_.getHostAddress.startsWith(prefix))
+      .map(_.getHostAddress)
+      .getOrElse(throw new IllegalStateException("Failed to resolve " + s))
+  }
+
+  def resolveInterfaceAddress(name: String): String =
+    NetworkInterface.getNetworkInterfaces
+      .find(_.getName == name)
+      .flatMap { iface => iface.getInetAddresses
+        .find(_.isInstanceOf[Inet4Address])
+        .map(_.getHostAddress)
+      }
+      .getOrElse(throw new IllegalStateException("Failed to resolve " + s))
+
+  override def hashCode(): Int = 31 * source.hashCode + value.hashCode
+
+  override def equals(o: scala.Any): Boolean = {
+    if (!o.isInstanceOf[BindAddress]) return false
+    val address = o.asInstanceOf[BindAddress]
+    source == address.source && value == address.value
+  }
+
+  override def toString: String = s
 }
 
 object Util {
@@ -70,69 +233,6 @@ object Util {
 
     file.delete()
     width
-  }
-
-  class BindAddress(s: String) {
-    private var _source: String = null
-    private var _value: String = null
-    
-    def source: String = _source
-    def value: String = _value
-
-    parse
-    def parse {
-      val idx = s.indexOf(":")
-      if (idx != -1) {
-        _source = s.substring(0, idx)
-        _value = s.substring(idx + 1)
-      } else
-        _value = s
-
-      if (source != null && source != "if")
-        throw new IllegalArgumentException(s)
-    }
-    
-    def resolve(): String = {
-      _source match {
-        case null => resolveAddress(_value)
-        case "if" => resolveInterfaceAddress(_value)
-        case _ => throw new IllegalStateException("Failed to resolve " + s)
-      }
-    }
-
-    def resolveAddress(addressOrMask: String): String = {
-      if (!addressOrMask.endsWith("*")) return addressOrMask
-      val prefix = addressOrMask.substring(0, addressOrMask.length - 1)
-      
-      for (ni <- NetworkInterface.getNetworkInterfaces) {
-        val address = ni.getInetAddresses.find(_.getHostAddress.startsWith(prefix)).getOrElse(null)
-        if (address != null) return address.getHostAddress
-      }
-
-      throw new IllegalStateException("Failed to resolve " + s)
-    }
-
-    def resolveInterfaceAddress(name: String): String = {
-      val ni = NetworkInterface.getNetworkInterfaces.find(_.getName == name).getOrElse(null)
-      if (ni == null) throw new IllegalStateException("Failed to resolve " + s)
-
-      val addresses: util.Enumeration[InetAddress] = ni.getInetAddresses
-      val address = addresses.find(_.isInstanceOf[Inet4Address]).getOrElse(null)
-      if (address != null) return address.getHostAddress
-
-      throw new IllegalStateException("Failed to resolve " + s)
-    }
-
-
-    override def hashCode(): Int = 31 * _source.hashCode + _value.hashCode
-
-    override def equals(o: scala.Any): Boolean = {
-      if (!o.isInstanceOf[BindAddress]) return false
-      val address = o.asInstanceOf[BindAddress]
-      _source == address._source && _value == address._value
-    }
-
-    override def toString: String = s
   }
 
   def readLastLines(file: File, n: Int, maxBytes: Int = 102400): String = {
