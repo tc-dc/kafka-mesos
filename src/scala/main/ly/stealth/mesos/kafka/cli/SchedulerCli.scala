@@ -118,68 +118,70 @@ trait SchedulerCli {
         Config.load(configFile)
       }
 
+      var newConfig = Config.get
       val debug = options.valueOf("debug").asInstanceOf[java.lang.Boolean]
-      if (debug != null) Config.debug = debug
+      if (debug != null) newConfig = newConfig.copy(debug = debug)
 
       val storage = options.valueOf("storage").asInstanceOf[String]
-      if (storage != null) Config.storage = storage
+      if (storage != null) newConfig = newConfig.copy(storage = storage)
 
       val provideOption = "Provide either cli option or config default value"
 
       val master = options.valueOf("master").asInstanceOf[String]
-      if (master != null) Config.master = master
-      else if (Config.master == null) throw new Error(s"Undefined master. $provideOption")
+      if (master != null) newConfig = newConfig.copy(master = master)
+      else if (newConfig.master == null) throw new Error(s"Undefined master. $provideOption")
 
       val user = options.valueOf("user").asInstanceOf[String]
-      if (user != null) Config.user = user
+      if (user != null) newConfig = newConfig.copy(user = user)
 
       val principal = options.valueOf("principal").asInstanceOf[String]
-      if (principal != null) Config.principal = principal
+      if (principal != null) newConfig = newConfig.copy(principal = principal)
 
       val secret = options.valueOf("secret").asInstanceOf[String]
-      if (secret != null) Config.secret = secret
-
+      if (secret != null) newConfig = newConfig.copy(secret = secret)
 
       val frameworkName = options.valueOf("framework-name").asInstanceOf[String]
-      if (frameworkName != null) Config.frameworkName = frameworkName
+      if (frameworkName != null) newConfig = newConfig.copy(frameworkName = frameworkName)
 
       val frameworkRole = options.valueOf("framework-role").asInstanceOf[String]
-      if (frameworkRole != null) Config.frameworkRole = frameworkRole
+      if (frameworkRole != null) newConfig = newConfig.copy(frameworkRole = frameworkRole)
 
       val frameworkTimeout = options.valueOf("framework-timeout").asInstanceOf[String]
       if (frameworkTimeout != null)
-        try { Config.frameworkTimeout = new Period(frameworkTimeout) }
+        try { newConfig = newConfig.copy(frameworkTimeout = new Period(frameworkTimeout)) }
         catch { case e: IllegalArgumentException => throw new Error("Invalid framework-timeout") }
 
       val reconciliationTimeout = options.valueOf("reconciliation-timeout").asInstanceOf[String]
       if (reconciliationTimeout != null)
-        try { Config.reconciliationTimeout = new Period(reconciliationTimeout)  }
+        try { newConfig = newConfig.copy(reconciliationTimeout = new Period(reconciliationTimeout))  }
         catch { case e: IllegalArgumentException => throw new Error("Invalid reconciliation-timeout") }
 
       val reconciliationAttempts = options.valueOf("reconciliation-attempts").asInstanceOf[Integer]
-      if (reconciliationAttempts != null) Config.reconciliationAttempts = reconciliationAttempts
+      if (reconciliationAttempts != null)
+        newConfig = newConfig.copy(reconciliationAttempts = reconciliationAttempts)
 
       val api = options.valueOf("api").asInstanceOf[String]
-      if (api != null) Config.api = api
-      else if (Config.api == null) throw new Error(s"Undefined api. $provideOption")
+      if (api != null) newConfig = newConfig.copy(api = api)
+      else if (newConfig.api == null) throw new Error(s"Undefined api. $provideOption")
 
       val bindAddress = options.valueOf("bind-address").asInstanceOf[String]
       if (bindAddress != null)
-        try { Config.bindAddress = new BindAddress(bindAddress) }
+        try { newConfig = newConfig.copy(bindAddress = new BindAddress(bindAddress)) }
         catch { case e: IllegalArgumentException => throw new Error("Invalid bind-address") }
 
       val zk = options.valueOf("zk").asInstanceOf[String]
-      if (zk != null) Config.zk = zk
-      else if (Config.zk == null) throw new Error(s"Undefined zk. $provideOption")
+      if (zk != null) newConfig = newConfig.copy(zk = zk)
+      else if (newConfig.zk == null) throw new Error(s"Undefined zk. $provideOption")
 
       val jre = options.valueOf("jre").asInstanceOf[String]
-      if (jre != null) Config.jre = new File(jre)
-      if (Config.jre != null && !Config.jre.exists()) throw new Error("JRE file doesn't exists")
+      if (jre != null) newConfig = newConfig.copy(jre = new File(jre))
+      if (newConfig.jre != null && !newConfig.jre.exists()) throw new Error("JRE file doesn't exists")
 
       val log = options.valueOf("log").asInstanceOf[String]
-      if (log != null) Config.log = new File(log)
-      if (Config.log != null) printLine(s"Logging to ${Config.log}")
+      if (log != null) newConfig = newConfig.copy(log = new File(log))
+      if (newConfig.log != null) printLine(s"Logging to ${newConfig.log}")
 
+      Config.set(newConfig)
       val registry = new ProductionRegistry()
       KafkaMesosScheduler.start(registry)
     }

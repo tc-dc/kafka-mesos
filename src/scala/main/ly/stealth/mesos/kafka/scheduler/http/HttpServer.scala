@@ -138,8 +138,12 @@ trait HttpServerComponentImpl extends HttpServerComponent {
           case "brokerManager" => Logger.getLogger("BrokerLifecycleManager")
           case l => Logger.getLogger(l)
         }
-        logger.setLevel(Level.toLevel(level))
-        Response.ok.build()
+        if (logger == null) {
+          Response.status(404).build()
+        } else {
+          logger.setLevel(Level.toLevel(level))
+          Response.ok.build()
+        }
       }
     }
 

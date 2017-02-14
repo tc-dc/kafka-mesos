@@ -141,8 +141,11 @@ trait MesosTaskFactoryComponentImpl extends MesosTaskFactoryComponent {
         if (kafkaDistribution.distInfo.kafkaVersion.compareTo(new Version("0.9")) >= 0)
           defaults += ("listeners" -> s"PLAINTEXT://:${ reservation.port }")
 
-        if (reservation.volume != null)
-          defaults += ("log.dirs" -> "data/kafka-logs")
+        if (reservation.volumes.nonEmpty) {
+          val volumePaths = reservation.volumes.map(_.getDisk.getVolume.getContainerPath)
+          defaults += ("log.dirs" ->
+            volumePaths.map(_ + "/kafka-logs").mkString(",").replace("$id", broker.id.toString))
+        }
 
         val launchConfig = LaunchConfig(
           broker.id,

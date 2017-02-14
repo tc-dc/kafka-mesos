@@ -17,6 +17,8 @@
 package ly.stealth.mesos.kafka.json
 
 
+import com.fasterxml.jackson.annotation.{JsonCreator, JsonSubTypes, JsonTypeInfo}
+import com.fasterxml.jackson.core.`type`.TypeReference
 import java.util.Date
 import com.fasterxml.jackson.core.{JsonGenerator, JsonParser}
 import com.fasterxml.jackson.databind.Module.SetupContext
@@ -25,6 +27,8 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 import com.fasterxml.jackson.databind.module.SimpleModule
 import com.fasterxml.jackson.databind.ser.std.StdSerializer
+import com.fasterxml.jackson.module.scala.JsonScalaEnumeration
+import ly.stealth.mesos.kafka.Broker.DynamicVolumeState
 import ly.stealth.mesos.kafka.{Broker, Cluster, Topic}
 import ly.stealth.mesos.kafka.Broker._
 import ly.stealth.mesos.kafka.Util.BindAddress
@@ -47,8 +51,8 @@ class BindAddressDeserializer extends StdDeserializer[BindAddress](classOf[BindA
 
 case class BrokerModel(
                         id: String, active: Boolean, cpus: Double, mem: Long, heap: Long,
-                        port: Range, volume: String, bindAddress: BindAddress, syslog: Boolean,
-                        constraints: String,
+                        port: Range, volume: String, volumes: Seq[Volume], bindAddress: BindAddress,
+                        syslog: Boolean, constraints: String,
                         options: String, log4jOptions: String, jvmOptions: String,
                         stickiness: Stickiness, failover: Failover, task: Task,
                         metrics: Metrics, needsRestart: Boolean, executionOptions: ExecutionOptions
@@ -64,7 +68,7 @@ class BrokerSerializer extends StdSerializer[Broker](classOf[Broker]) {
       }
 
     provider.defaultSerializeValue(BrokerModel(
-      b.id.toString, b.active, b.cpus, b.mem, b.heap, b.port, b.volume, b.bindAddress, b.syslog,
+      b.id.toString, b.active, b.cpus, b.mem, b.heap, b.port, null, b.volumes, b.bindAddress, b.syslog,
       Strings.formatMap(b.constraints), Strings.formatMap(b.options), Strings.formatMap(b.log4jOptions),
       b.executionOptions.jvmOptions, b.stickiness, b.failover, b.task, metrics, b.needsRestart,
       b.executionOptions
@@ -81,7 +85,9 @@ class BrokerDeserializer extends StdDeserializer[Broker](classOf[Broker]) {
     b.mem = model.mem
     b.heap = model.heap
     b.port = model.port
-    b.volume = model.volume
+    b.volumes = (
+      Option(model.volume).map(StaticVolume) ++
+        Option(model.volumes).getOrElse(Seq())).toSeq
     b.bindAddress = model.bindAddress
     b.syslog = model.syslog
 
@@ -89,14 +95,13 @@ class BrokerDeserializer extends StdDeserializer[Broker](classOf[Broker]) {
     b.options = Strings.parseMap(model.options).toMap
     b.log4jOptions = Strings.parseMap(model.log4jOptions).toMap
 
-    b.stickiness = if (model.stickiness != null) model.stickiness else new Stickiness()
+    b.stickiness = Option(model.stickiness).getOrElse(new Stickiness())
     b.failover = model.failover
     b.metrics = model.metrics
     b.needsRestart = model.needsRestart
 
     b.task = model.task
-    if (model.executionOptions != null)
-      b.executionOptions = model.executionOptions
+    b.executionOptions = Option(model.executionOptions).getOrElse(b.executionOptions)
     if (model.jvmOptions != null)
       b.executionOptions = b.executionOptions.copy(jvmOptions = model.jvmOptions)
 
@@ -123,7 +128,7 @@ class EndpointSerializer extends StdSerializer[Endpoint](classOf[Endpoint]) {
 
 class EndpointDeserializer extends StdDeserializer[Endpoint](classOf[Endpoint]) {
   override def deserialize(p: JsonParser, ctxt: DeserializationContext): Endpoint = {
-    new Endpoint(p.readValueAs(classOf[String]))
+    Endpoint(p.readValueAs(classOf[String]))
   }
 }
 
@@ -251,6 +256,14 @@ class TaskDeserializer extends StdDeserializer[Task](classOf[Task]) {
   }
 }
 
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+@JsonSubTypes(Array(
+  new JsonSubTypes.Type(value = classOf[StaticVolume], name = "static"),
+  new JsonSubTypes.Type(value = classOf[DynamicVolume], name = "dynamic")
+))
+abstract class VolumeModel {
+}
+
 abstract class TopicModel {
   @JsonDeserialize(keyAs = classOf[Integer])
   val partitions: Map[Int, Seq[Int]] = Map()
@@ -277,9 +290,12 @@ class ClusterDeserializer extends StdDeserializer[Cluster](classOf[Cluster]) {
   }
 }
 
+private[this] class DynamicVolumeStateType extends TypeReference[DynamicVolumeState.type]
+
 object KafkaObjectModel extends SimpleModule {
   override def setupModule(context: SetupContext): Unit = {
     this.setMixInAnnotation(classOf[Topic], classOf[TopicModel])
+    this.setMixInAnnotation(classOf[Volume], classOf[VolumeModel])
 
     this.addSerializer(classOf[BindAddress], new BindAddressSerializer())
     this.addDeserializer(classOf[BindAddress], new BindAddressDeserializer())

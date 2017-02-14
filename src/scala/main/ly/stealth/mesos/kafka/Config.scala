@@ -27,43 +27,78 @@ object SchedulerVersion {
   val value = "0.10.1.0-SNAPSHOT"
 }
 
-object Config {
-  val DEFAULT_FILE = new File("kafka-mesos.properties")
+trait ConfigComponent {
+  def config: Config
+}
 
-  var debug: Boolean = false
-  var storage: String = "file:kafka-mesos.json"
+case class Config(
+  debug: Boolean = false,
+  storage: String = "file:kafka-mesos.json",
 
-  var master: String = null
-  var principal: String = null
-  var secret: String = null
-  var user: String = null
+  master: String = null,
+  principal: String = null,
+  secret: String = null,
+  user: String = null,
 
-  var frameworkName: String = "kafka"
-  var frameworkRole: String = "*"
-  var frameworkTimeout: Period = new Period("30d")
+  frameworkName: String = "kafka",
+  frameworkRole: String = "*",
+  frameworkTimeout: Period = new Period("30d"),
 
-  var reconciliationTimeout = new Period("5m")
-  var reconciliationAttempts = 6
-  var reconciliationInterval = new Period((reconciliationTimeout.ms() * reconciliationAttempts) + "ms")
+  reconciliationTimeout: Period = new Period("5m"),
+  reconciliationAttempts: Int = 6,
+  reconciliationInterval: Period = new Period("30m"),
 
-  var jre: File = null
-  var log: File = null
-  var api: String = null
-  var bindAddress: BindAddress = null
-  var zk: String = null
-
+  jre: File = null,
+  log: File = null,
+  api: String = null,
+  bindAddress: BindAddress = null,
+  zk: String = null
+) {
   def apiPort: Int = {
     val port = new URI(api).getPort
     if (port == -1) 80 else port
   }
+}
+
+object Config {
+  val DEFAULT_FILE = new File("kafka-mesos.properties")
+  def get = theConfig
+  def set(c: Config) = theConfig = c
+
+  private[this] var theConfig: Config = Config()
+
+  def debug: Boolean = theConfig.debug
+  def storage: String = theConfig.storage
+
+  def master: String = theConfig.master
+  def principal: String = theConfig.principal
+  def secret: String = theConfig.secret
+  def user: String = theConfig.user
+
+  def frameworkName: String = theConfig.frameworkName
+  def frameworkRole: String = theConfig.frameworkRole
+  def frameworkTimeout: Period = theConfig.frameworkTimeout
+
+  def reconciliationTimeout: Period = theConfig.reconciliationTimeout
+  def reconciliationAttempts: Int = theConfig.reconciliationAttempts
+  def reconciliationInterval: Period = theConfig.reconciliationInterval
+
+  def jre: File = theConfig.jre
+  def log: File = theConfig.log
+  def api: String = theConfig.api
+  def bindAddress: BindAddress = theConfig.bindAddress
+  def zk: String = theConfig.zk
+
+  def apiPort: Int = theConfig.apiPort
 
   def replaceApiPort(port: Int): Unit = {
     val prev: URI = new URI(api)
-    api = "" + new URI(
-      prev.getScheme, prev.getUserInfo,
-      prev.getHost, port,
-      prev.getPath, prev.getQuery, prev.getFragment
-    )
+    theConfig = theConfig.copy(
+      api = "" + new URI(
+        prev.getScheme, prev.getUserInfo,
+        prev.getHost, port,
+        prev.getPath, prev.getQuery, prev.getFragment
+      ))
   }
 
   private[kafka] def load(file: File): Unit = {
@@ -73,27 +108,31 @@ object Config {
     props.load(stream)
     stream.close()
 
-    if (props.containsKey("debug")) debug = java.lang.Boolean.valueOf(props.getProperty("debug"))
-    if (props.containsKey("storage")) storage = props.getProperty("storage")
+    var config = Config()
 
-    if (props.containsKey("master")) master = props.getProperty("master")
-    if (props.containsKey("user")) user = props.getProperty("user")
-    if (props.containsKey("principal")) principal = props.getProperty("principal")
-    if (props.containsKey("secret")) secret = props.getProperty("secret")
+    if (props.containsKey("debug")) config = config.copy(debug = java.lang.Boolean.valueOf(props.getProperty("debug")))
+    if (props.containsKey("storage")) config = config.copy(storage = props.getProperty("storage"))
 
-    if (props.containsKey("framework-name")) frameworkName = props.getProperty("framework-name")
-    if (props.containsKey("framework-role")) frameworkRole = props.getProperty("framework-role")
-    if (props.containsKey("framework-timeout")) frameworkTimeout = new Period(props.getProperty("framework-timeout"))
+    if (props.containsKey("master")) config = config.copy(master = props.getProperty("master"))
+    if (props.containsKey("user")) config = config.copy(user = props.getProperty("user"))
+    if (props.containsKey("principal")) config = config.copy(principal = props.getProperty("principal"))
+    if (props.containsKey("secret")) config = config.copy(secret = props.getProperty("secret"))
 
-    if (props.containsKey("reconciliation-timeout")) reconciliationTimeout = new Period(props.getProperty("reconciliation-timeout"))
-    if (props.containsKey("reconciliation-attempts")) reconciliationAttempts = Integer.valueOf("reconciliation-attempts")
-    if (props.containsKey("reconciliation-interval")) reconciliationInterval = new Period(props.getProperty("reconciliation-interval"))
+    if (props.containsKey("framework-name")) config = config.copy(frameworkName = props.getProperty("framework-name"))
+    if (props.containsKey("framework-role")) config = config.copy(frameworkRole = props.getProperty("framework-role"))
+    if (props.containsKey("framework-timeout")) config = config.copy(frameworkTimeout = new Period(props.getProperty("framework-timeout")))
 
-    if (props.containsKey("jre")) jre = new File(props.getProperty("jre"))
-    if (props.containsKey("log")) log = new File(props.getProperty("log"))
-    if (props.containsKey("api")) api = props.getProperty("api")
-    if (props.containsKey("bind-address")) bindAddress = new BindAddress(props.getProperty("bind-address"))
-    if (props.containsKey("zk")) zk = props.getProperty("zk")
+    if (props.containsKey("reconciliation-timeout")) config = config.copy(reconciliationTimeout = new Period(props.getProperty("reconciliation-timeout")))
+    if (props.containsKey("reconciliation-attempts")) config = config.copy(reconciliationAttempts = Integer.valueOf("reconciliation-attempts"))
+    if (props.containsKey("reconciliation-interval")) config = config.copy(reconciliationInterval = new Period(props.getProperty("reconciliation-interval")))
+
+    if (props.containsKey("jre")) config = config.copy(jre = new File(props.getProperty("jre")))
+    if (props.containsKey("log")) config = config.copy(log = new File(props.getProperty("log")))
+    if (props.containsKey("api")) config = config.copy(api = props.getProperty("api"))
+    if (props.containsKey("bind-address")) config = config.copy(bindAddress = new BindAddress(props.getProperty("bind-address")))
+    if (props.containsKey("zk")) config = config.copy(zk = props.getProperty("zk"))
+
+    theConfig = config
   }
 
   override def toString: String = {

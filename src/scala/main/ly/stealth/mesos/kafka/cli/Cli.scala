@@ -62,7 +62,7 @@ trait CliUtils
     options.nonOptionArguments().toArray(new Array[String](0))
   }
 
-  def parseOptions(parser: OptionParser, args: Array[String]): OptionSet = {
+  def parseOptions(parser: OptionParser, args: Seq[String]): OptionSet = {
     try {
       parser.parse(args:_*)
     } catch {

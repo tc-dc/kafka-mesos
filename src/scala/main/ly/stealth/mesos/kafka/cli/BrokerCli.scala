@@ -19,6 +19,7 @@ package ly.stealth.mesos.kafka.cli
 import java.io.IOException
 import java.util
 import java.util.{Collections, Date}
+import ly.stealth.mesos.kafka.Broker.{DynamicVolume, StaticVolume}
 import ly.stealth.mesos.kafka.cli.Cli.Error
 import ly.stealth.mesos.kafka.{Broker, BrokerRemoveResponse, BrokerStartResponse, BrokerStatusResponse, HttpLogResponse}
 import ly.stealth.mesos.kafka.json.JsonUtil
@@ -60,6 +61,7 @@ trait BrokerCli {
         case "start" | "stop" => handleStartStop(arg, args, cmd == "start")
         case "restart" => handleRestart(arg, args)
         case "log" => handleLog(arg, args)
+        case "volume" => handleVolume(arg, args)
         case _ => throw new Error("unsupported broker command " + cmd)
       }
     }
@@ -478,6 +480,7 @@ trait BrokerCli {
       printLine("stop       - stop broker", 1)
       printLine("restart    - restart broker", 1)
       printLine("log        - retrieve broker log", 1)
+      printLine("volume     - adds or removes broker volumes", 1)
     }
 
     private def printBroker(broker: Broker, indent: Int, quiet: Boolean = false): Unit = {
@@ -496,6 +499,14 @@ trait BrokerCli {
         i.mounts.foreach { m =>
           printLine(s"${m.hostPath} => ${m.containerPath} [${m.mode}]", indent + 1)
         }
+      }
+      if (broker.volumes.nonEmpty) {
+        printLine("volumes:", indent)
+        broker.volumes.map {
+          case StaticVolume(v) => s"$v (static)"
+          case DynamicVolume(sizeMb, containerPath, volumeId, state, filters) => s"$containerPath (${sizeMb}MB, dynamic) -> $state, $volumeId"
+          case unk => unk.toString
+        }.foreach(printLine(_, indent + 1))
       }
 
       if (!quiet) {
@@ -557,7 +568,6 @@ trait BrokerCli {
       s += ", mem:" + broker.mem
       s += ", heap:" + broker.heap
       s += ", port:" + (if (broker.port != null) broker.port else "auto")
-      if (broker.volume != null) s += ", volume:" + broker.volume
 
       s
     }
@@ -573,7 +583,52 @@ trait BrokerCli {
       printLine("groupBy         - all values are the same", 1)
       printLine("groupBy:3       - all values are within 3 different groups", 1)
     }
+
+    private def handleVolume(arg: String, args: Array[String], help: Boolean = false): Unit = {
+      if (arg == "add") {
+        handleVolumeAdd(args)
+      } else if (arg == "remove") {
+        handleVolumeRemove(args)
+      }
+    }
+
+    private def handleVolumeAdd(args: Seq[String]): Unit = {
+      val parser = newParser()
+      val typeArg = parser.accepts("type", "volume type (static, dynamic)").withRequiredArg().ofType(classOf[String])
+      val sizeArg = parser.accepts("size", "volume size (in MB)").withRequiredArg().ofType(classOf[Long])
+      val pathArg = parser.accepts("path", "path to mount the volume inside the container").withRequiredArg().ofType(classOf[String])
+
+      val expr = args.head
+      val rest = args.drop(1)
+      val opts = parseOptions(parser, rest)
+
+      val params = Map(
+        "broker" -> expr,
+        "type" -> opts.valueOf(typeArg),
+        "sizeMb" -> opts.valueOf(sizeArg).toString,
+        "containerPath" -> opts.valueOf(pathArg)
+      )
+      val ret =
+        try { sendRequest("/broker/addVolume", params) }
+        catch { case e: IOException => throw new Error("" + e) }
+
+    }
+
+    private def handleVolumeRemove(args: Seq[String]): Unit = {
+      val parser = newParser()
+      val idArg = parser.accepts("volumeId", "volumeId to remove").withRequiredArg().ofType(classOf[String])
+
+      val expr = args.head
+      val rest = args.drop(1)
+      val opts = parseOptions(parser, rest)
+
+      var params = Map(
+        "broker" -> expr,
+        "volumeId" -> opts.valueOf(idArg)
+      )
+      val ret =
+        try { sendRequest("/broker/removeVolume", params) }
+        catch { case e: IOException => throw new Error("" + e) }
+    }
   }
-
-
 }

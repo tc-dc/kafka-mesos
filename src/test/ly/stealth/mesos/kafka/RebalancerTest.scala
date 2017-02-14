@@ -35,7 +35,7 @@ class RebalancerTest extends KafkaMesosTestCase {
     rebalancer = new Rebalancer()
 
     val port = 56789
-    Config.zk = s"localhost:$port"
+    Config.set(Config.get.copy(zk = s"localhost:$port"))
 
     startZkServer()
     zkClient = zkServer.getZkClient

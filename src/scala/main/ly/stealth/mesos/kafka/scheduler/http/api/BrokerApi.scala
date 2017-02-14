@@ -17,10 +17,11 @@
 package ly.stealth.mesos.kafka.scheduler.http.api
 
 import java.lang.{Boolean => JBool, Double => JDouble, Integer => JInt, Long => JLong}
+import java.util.UUID
 import java.util.concurrent.{TimeUnit, TimeoutException}
 import javax.ws.rs.core.{MediaType, Response}
 import javax.ws.rs.{Produces, _}
-import ly.stealth.mesos.kafka.Broker.{Container, ContainerType, ExecutionOptions, Mount, State}
+import ly.stealth.mesos.kafka.Broker._
 import ly.stealth.mesos.kafka.Util.BindAddress
 import ly.stealth.mesos.kafka._
 import ly.stealth.mesos.kafka.RunnableConversions._
@@ -33,6 +34,7 @@ import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success, Try}
 import scala.collection.mutable
+import scala.collection.JavaConversions._
 
 trait BrokerApiComponent {
   val brokerApi: BrokerApi
@@ -87,7 +89,6 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
       @BothParam("mem") mem: JLong,
       @BothParam("heap") heap: JLong,
       @BothParam("port") port: Range,
-      @BothParam("volume") volume: String,
       @BothParam("bindAddress") bindAddress: BindAddress,
       @BothParam("syslog") syslog: JBool,
       @BothParam("stickinessPeriod") stickinessPeriod: Period,
@@ -149,7 +150,6 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
         if (mem != null) broker.mem = mem
         if (heap != null) broker.heap = heap
         if (port != null) broker.port = port
-        if (volume != null) broker.volume = volume
         if (bindAddress != null) broker.bindAddress = bindAddress
         if (syslog != null) broker.syslog = syslog
         if (stickinessPeriod != null) broker.stickiness.period = stickinessPeriod
@@ -401,6 +401,73 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
       }
     }
 
+    @POST
+    @Path("addVolume")
+    @Produces(Array(MediaType.APPLICATION_JSON))
+    def addVolume(
+      @BothParam("broker") expr: String,
+      @BothParam("type") volumeType: String,
+      @BothParam("volumeName") volumeName: String,
+      @BothParam("sizeMb") sizeMb: JLong,
+      @BothParam("containerPath") containerPath: String
+    ): Response = {
+      val ids = Expr.expandBrokers(cluster, expr)
+
+      if (volumeType == "static") {
+        if (volumeName == null || volumeName.isEmpty) {
+          return Status.BadRequest("volumeName must be set if volumeType == static")
+        }
+        cluster.getBrokers.find(_.volumes.exists(_.volumeId == volumeName)) match {
+          case Some(broker) =>
+            return Status.BadRequest(s"volumeName must be unique, name $volumeName is already used by broker ${broker.id}")
+          case None =>
+        }
+      }
+      if (volumeType == "dynamic" && (
+        sizeMb == null || sizeMb <= 0 ||
+        containerPath == null || containerPath.isEmpty
+      )) {
+        return Status.BadRequest("sizeMb and containerPath must be set if volumeType == dynamic")
+      }
+
+      ids.flatMap(i => Option(cluster.getBroker(i))).foreach { b =>
+        val volume = volumeType match {
+            case "static" => StaticVolume(volumeName)
+            case "dynamic" => DynamicVolume(
+              sizeMb,
+              containerPath,
+              s"${cluster.frameworkId}-broker-${b.id}-volume-${UUID.randomUUID()}")
+          }
+        b.volumes :+= volume
+        b.needsRestart = true
+      }
+
+      cluster.save()
+      Response.ok().build()
+    }
+
+    @POST
+    @Path("removeVolume")
+    @Produces(Array(MediaType.APPLICATION_JSON))
+    def removeVolume(
+      @BothParam("broker") expr: String,
+      @BothParam("volumeId") volumeId: String
+    ): Response = {
+      val ids = Expr.expandBrokers(cluster, expr)
+
+      if (volumeId == null || volumeId.isEmpty) {
+        return Status.BadRequest("volumeId must be non null")
+      }
+
+      ids.flatMap(i => Option(cluster.getBroker(i))).foreach { b =>
+        b.volumes = b.volumes.filterNot(_.volumeId == volumeId)
+        b.needsRestart = true
+      }
+
+      cluster.save()
+      Response.ok().build()
+    }
+
     private def brokerLogImpl(
       brokers: Seq[Broker],
       name: String,
@@ -415,7 +482,7 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
         .mapValues(f => Try(Await.result(f, Duration.Inf)))
         .mapValues({
           case Success(r) => HttpLogResponse("ok", r)
-          case Failure(e: TimeoutException) => HttpLogResponse("timeout", "")
+          case Failure(_: TimeoutException) => HttpLogResponse("timeout", "")
           case Failure(e) => HttpLogResponse("failure", e.getMessage)
         })
     }
@@ -445,7 +512,7 @@ trait BrokerApiComponentImpl extends BrokerApiComponent {
       }
     }
 
-    def cloneBrokerImpl(source: Broker, newIds: Seq[Int]) = {
+    private def cloneBrokerImpl(source: Broker, newIds: Seq[Int]) = {
       val newBrokers = newIds.map(source.clone)
       newBrokers.foreach(cluster.addBroker)
       cluster.save()

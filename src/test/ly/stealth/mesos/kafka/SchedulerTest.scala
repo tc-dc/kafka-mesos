@@ -19,16 +19,17 @@ package ly.stealth.mesos.kafka
 
 import org.junit.Test
 import org.junit.Assert._
-import org.apache.mesos.Protos.{ContainerInfo, Offer, TaskID, TaskState, TaskStatus, Volume}
+import org.apache.mesos.Protos._
 import java.util.{Date, UUID}
 import java.util.concurrent.TimeUnit
-import ly.stealth.mesos.kafka.Broker.{Container, ContainerType, ExecutionOptions, Mount, MountMode}
+import ly.stealth.mesos.kafka.Broker.{Volume => _, _}
 import ly.stealth.mesos.kafka.executor.{Executor, LaunchConfig}
 import ly.stealth.mesos.kafka.json.JsonUtil
 import ly.stealth.mesos.kafka.scheduler.BrokerState
-import ly.stealth.mesos.kafka.scheduler.mesos.{OfferManager, OfferResult}
+import ly.stealth.mesos.kafka.scheduler.mesos.{CreateVolumes, OfferManager, OfferResult}
 import net.elodina.mesos.util.Period
 import net.elodina.mesos.util.Strings.parseMap
+import org.apache.mesos.Protos.Offer.Operation
 import scala.collection.JavaConversions._
 import scala.collection.JavaConverters._
 import scala.concurrent.duration.Duration
@@ -371,7 +372,7 @@ class SchedulerTest extends KafkaMesosTestCase {
 
   @Test
   def reconciliationFullRun = {
-    Config.reconciliationTimeout = new Period("1ms")
+    Config.set(Config.get.copy(reconciliationTimeout = new Period("1ms")))
 
     val mockRegistry = registry
 
@@ -395,7 +396,7 @@ class SchedulerTest extends KafkaMesosTestCase {
 
   @Test
   def reconciliationSucceeds: Unit = {
-    Config.reconciliationTimeout = new Period("100ms")
+    Config.set(Config.get.copy(reconciliationTimeout = new Period("100ms")))
 
     val broker0 = registry.cluster.addBroker(new Broker(0))
     val broker1 = registry.cluster.addBroker(new Broker(1))

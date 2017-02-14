@@ -16,10 +16,13 @@
  */
 package ly.stealth.mesos.kafka.scheduler.mesos
 
-import java.util.Date
-import ly.stealth.mesos.kafka.Broker
+import java.util.{Date, UUID}
+import ly.stealth.mesos.kafka.{Broker, Config}
+import ly.stealth.mesos.kafka.Broker.{DynamicVolume, Volume}
 import org.apache.log4j.Logger
-import org.apache.mesos.Protos.{Filters, Offer, OfferID}
+import org.apache.mesos.Protos.Offer.Operation
+import org.apache.mesos.Protos.Resource.DiskInfo
+import org.apache.mesos.Protos.{Filters, Offer, OfferID, Resource, Value, Volume => MesosVolume}
 import scala.collection.JavaConversions._
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -40,6 +43,10 @@ object OfferResult {
     reason: String,
     duration: Int = 5
   ) extends Decline
+  case class DeclineMissingVolumes(offer: Offer, broker: Broker) extends Decline {
+    val reason: String = "offer missing volumes"
+    val duration: Int = 60 * 60
+  }
   case class NoWork(offer: Offer) extends Decline {
     val reason = "no work to do"
     val duration: Int = 60 * 60

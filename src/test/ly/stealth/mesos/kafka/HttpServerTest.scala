@@ -26,7 +26,7 @@ import net.elodina.mesos.util.{IO, Period, Version}
 import net.elodina.mesos.util.Strings.{formatMap, parseMap}
 import ly.stealth.mesos.kafka.cli.Cli.{sendRequest, sendRequestObj}
 import java.util.Properties
-import ly.stealth.mesos.kafka.Broker.{Container, ContainerType, Mount, MountMode}
+import ly.stealth.mesos.kafka.Broker.{Container, ContainerType, DynamicVolume, Mount, MountMode, StaticVolume}
 import ly.stealth.mesos.kafka.cli.Cli
 import ly.stealth.mesos.kafka.json.JsonUtil
 import ly.stealth.mesos.kafka.scheduler.{AdminUtilsWrapper, Quota, Quotas}
@@ -419,6 +419,42 @@ class HttpServerTest extends KafkaMesosTestCase {
     setLogContent("something")
     val json = sendRequestObj[HttpLogResponse]("/broker/log", Map("broker" -> "0"))
     assertEquals("something", json.content)
+  }
+
+  @Test
+  def broker_add_static_volume: Unit = {
+    val broker = registry.cluster.addBroker(new Broker())
+    sendRequest("/broker/addVolume", Map("broker" -> "0", "type" -> "static", "volumeName" -> "test"))
+
+    assertEquals(StaticVolume("test"), broker.volumes.head)
+  }
+
+  @Test
+  def broker_add_dynamic_volume: Unit = {
+    val broker = registry.cluster.addBroker(new Broker())
+    sendRequest("/broker/addVolume", Map(
+      "broker" -> "0",
+      "type" -> "dynamic",
+      "sizeMb" -> "1000",
+      "containerPath" -> "data"
+    ))
+
+    assertEquals(
+      DynamicVolume(1000, "data", "test"),
+      broker.volumes.head.asInstanceOf[DynamicVolume].copy(volumeId = "test"))
+  }
+
+  @Test
+  def broker_remove_volume: Unit = {
+    val broker = registry.cluster.addBroker(new Broker())
+    broker.volumes = Seq(
+      StaticVolume("test1"),
+      DynamicVolume(1000, "data", "test")
+    )
+
+    sendRequest("/broker/removeVolume", Map("broker" -> "0", "volumeId" -> "test"))
+    assertEquals(1, broker.volumes.size)
+    assertEquals(StaticVolume("test1"), broker.volumes.head)
   }
 
   @Test

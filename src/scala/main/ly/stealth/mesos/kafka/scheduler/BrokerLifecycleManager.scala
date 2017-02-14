@@ -16,6 +16,7 @@
  */
 package ly.stealth.mesos.kafka.scheduler
 
+import ly.stealth.mesos.kafka.Broker.{DynamicVolume, DynamicVolumeState, PendingVolume}
 import ly.stealth.mesos.kafka.scheduler.mesos._
 import ly.stealth.mesos.kafka.{Broker, ClockComponent}
 import net.elodina.mesos.util.Repr
@@ -142,7 +143,25 @@ trait BrokerLifecycleManagerComponentImpl extends BrokerLifecycleManagerComponen
     private def launchBroker(broker: Broker, accept: OfferResult.Accept) = {
       val task = brokerTaskManager.launchBroker(accept)
       broker.task = task
+
+      updateVolumeStatuses(broker)
     }
+
+    private def updateVolumeStatuses(broker: Broker) = {
+      // Mark any volumes that are Creating as Ready
+      val pendingVolumes = broker.volumes
+        .collect {
+          case PendingVolume(v) => v
+          case dv@DynamicVolume(_, _, _, DynamicVolumeState.Creating, _) => dv
+        }
+        .map(_.copy(state = DynamicVolumeState.Ready))
+
+      if (pendingVolumes.nonEmpty) {
+        broker.volumes = broker.volumes
+          .filterNot(v => pendingVolumes.exists(_.volumeId == v.volumeId)) ++ pendingVolumes
+      }
+    }
+
     private def tryResurrectBroker(status: TaskStatus) = {
       val taskId = status.getTaskId
       val brokerId = Broker.idFromTaskId(taskId.getValue)
@@ -158,6 +177,7 @@ trait BrokerLifecycleManagerComponentImpl extends BrokerLifecycleManagerComponen
         case _ => // other states we dont care about.
       }
     }
+
     private def tryReattachTask(broker: Broker, status: TaskStatus) = {
       val kill =
         if (broker.lastTask != null && broker.lastTask.id == status.getTaskId.getValue) {
@@ -197,7 +217,7 @@ trait BrokerLifecycleManagerComponentImpl extends BrokerLifecycleManagerComponen
     private[this] def onRunning(broker: Broker, status: TaskStatus): Unit = {
       broker.task.state = Broker.State.RUNNING
       if (status.hasData && status.getData.size() > 0)
-        broker.task.endpoint = new Broker.Endpoint(status.getData.toStringUtf8)
+        broker.task.endpoint = Broker.Endpoint(status.getData.toStringUtf8)
       broker.registerStart(broker.task.hostname)
     }
 

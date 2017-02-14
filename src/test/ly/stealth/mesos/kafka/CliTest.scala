@@ -23,7 +23,7 @@ import org.junit.Assert._
 import java.util
 import scala.collection.JavaConversions._
 import java.io.{ByteArrayOutputStream, PrintStream}
-import ly.stealth.mesos.kafka.Broker.{Container, ContainerType, Mount, MountMode}
+import ly.stealth.mesos.kafka.Broker._
 import ly.stealth.mesos.kafka.cli.Cli
 import ly.stealth.mesos.kafka.json.JsonUtil
 import ly.stealth.mesos.kafka.scheduler.Rebalancer
@@ -320,6 +320,31 @@ class CliTest extends KafkaMesosTestCase {
     assertOutContains("brokers restarted:")
     assertOutContains("id: 0")
     assertOutContains("id: 1")
+  }
+
+  @Test
+  def broker_add_dynamic_volume = {
+    val broker = registry.cluster.addBroker(new Broker(0))
+
+    exec("broker volume add 0 --type dynamic --size 100 --path test")
+
+    assertTrue(broker.needsRestart)
+    assertEquals(1, broker.volumes.size)
+    assertEquals(
+      DynamicVolume(100, "test", "test", DynamicVolumeState.AwaitingOffer),
+      broker.volumes.head.asInstanceOf[DynamicVolume].copy(volumeId = "test")
+    )
+  }
+
+  @Test
+  def broker_remove_volume = {
+    val broker = registry.cluster.addBroker(new Broker(0))
+    broker.volumes = Seq(StaticVolume("test"))
+
+    exec("broker volume remove 0 --volumeId test")
+
+    assertTrue(broker.needsRestart)
+    assertTrue(broker.volumes.isEmpty)
   }
 
   @Test

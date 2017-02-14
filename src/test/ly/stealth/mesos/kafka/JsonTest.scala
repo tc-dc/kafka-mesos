@@ -52,7 +52,7 @@ class JsonTest {
       slaveId = "1fbd3a0d-a685-47e6-8066-01be06d68fac-S821"
     )
     b.task.state = Broker.State.RUNNING
-    b.task.endpoint = new Endpoint("host1:9092")
+    b.task.endpoint = Endpoint("host1", 9092)
     b.syslog = false
     b.stickiness = new Stickiness(new Period("10m"))
     b.stickiness.registerStart("host1")

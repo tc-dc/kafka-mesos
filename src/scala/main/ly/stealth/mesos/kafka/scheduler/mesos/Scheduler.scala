@@ -19,6 +19,7 @@ package ly.stealth.mesos.kafka.scheduler.mesos
 
 import java.util
 import java.util.concurrent.{Executors, ScheduledExecutorService}
+import ly.stealth.mesos.kafka.Broker.{DynamicVolume, DynamicVolumeState, PendingVolume}
 import ly.stealth.mesos.kafka._
 import ly.stealth.mesos.kafka.RunnableConversions._
 import ly.stealth.mesos.kafka.json.JsonUtil
@@ -28,6 +29,7 @@ import org.apache.log4j._
 import org.apache.mesos.Protos._
 import org.apache.mesos.{MesosSchedulerDriver, SchedulerDriver}
 import scala.collection.JavaConversions._
+import scala.collection.mutable
 import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 
@@ -82,7 +84,8 @@ trait SchedulerComponentImpl extends SchedulerComponent with SchedulerDriverComp
     with SchedulerDriverComponent
     with BrokerLifecycleManagerComponent
     with BrokerTaskManagerComponent
-    with EventLoopComponent =>
+    with EventLoopComponent
+    with VolumeManagerComponent =>
 
   val scheduler: KafkaMesosScheduler = new KafkaMesosSchedulerImpl
   private[this] var _driver: SchedulerDriver = _
@@ -115,21 +118,56 @@ trait SchedulerComponentImpl extends SchedulerComponent with SchedulerDriverComp
       if (logger.isDebugEnabled)
         logger.debug("[resourceOffers]\n" + Repr.offers(offers))
 
-      eventLoop.execute(() =>
-        if (taskReconciler.isReconciling) {
-          offers.foreach(o => offerManager.declineOffer(o.getId))
-        }
-        else {
+      eventLoop.submit(() => resourceOffersImpl(offers))
+    }
+
+    private def resourceOffersImpl(offers: Seq[Offer]) = {
+      if (taskReconciler.isReconciling) {
+        offers.foreach(o => offerManager.declineOffer(o.getId))
+      }
+      else {
+        val remainingOffers =
           try {
-            if (tryLaunchBrokers(offers)) {
+            val (ro, created) = tryCreateVolumes(offers)
+            if (created) {
               cluster.save()
             }
+            ro
           } catch {
             case e: Exception =>
-              logger.error("Error accepting offers, declining", e)
-              offers.foreach(o => offerManager.declineOffer(o.getId))
+              logger.error("Error creating volumes", e)
+              offers
           }
-        })
+        try {
+          if (tryLaunchBrokers(remainingOffers)) {
+            cluster.save()
+          }
+        } catch {
+          case e: Exception =>
+            logger.error("Error accepting offers, declining", e)
+            offers.foreach(o => offerManager.declineOffer(o.getId))
+        }
+      }
+    }
+
+    def tryCreateVolumes(offers: Seq[Offer]): (Seq[Offer], Boolean) = {
+      // Test if any brokers have volumes pending
+      val brokers = mutable.Set[Broker]() ++ cluster.getBrokers.filter(_.volumes.exists {
+        case PendingVolume(_) => true
+        case _ => false
+      })
+      if (brokers.isEmpty)
+        return (offers, false)
+
+      offers.flatMap { o =>
+        val c = volumeManager.tryCreateVolumes(o, brokers)
+        c match {
+          case CreateVolumes.Success(_, broker, _) =>
+            brokers.remove(broker)
+            None
+          case _ => Some(o)
+        }
+      } -> true
     }
 
     private def debugLog(result: Either[OfferResult.Accept, Seq[OfferResult.Decline]]): Unit = {

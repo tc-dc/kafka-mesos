@@ -30,8 +30,11 @@ import java.util.Date
 import ly.stealth.mesos.kafka.executor.{BrokerServer, Executor, KafkaServer, LaunchConfig}
 import ly.stealth.mesos.kafka.scheduler._
 import net.elodina.mesos.test.TestSchedulerDriver
-import org.apache.mesos.Protos.{Status, TaskState}
+import org.apache.mesos.Protos.Offer.Operation
+import org.apache.mesos.Protos.{Filters, OfferID, Status, TaskState}
+import org.apache.mesos.SchedulerDriver
 import org.junit.Assert._
+import scala.collection.mutable
 
 @Ignore
 class KafkaMesosTestCase extends net.elodina.mesos.test.MesosTestCase {
@@ -67,11 +70,23 @@ class KafkaMesosTestCase extends net.elodina.mesos.test.MesosTestCase {
     override val clock: Clock = MockWallClock
   }
 
-  schedulerDriver = new TestSchedulerDriver() {
+  class BetterTestSchedulerDriver extends TestSchedulerDriver {
+    val fullAcceptedOffers = mutable.Buffer[(Seq[OfferID], Seq[Operation])]()
+
     override def suppressOffers() = Status.DRIVER_RUNNING
     override def reviveOffers(): Status = Status.DRIVER_RUNNING
+
+    override def acceptOffers(
+      offerIds: util.Collection[OfferID],
+      operations: util.Collection[Operation],
+      filters: Filters
+    ): Status = {
+      fullAcceptedOffers.append((offerIds.toSeq, operations.toSeq))
+      Status.DRIVER_RUNNING
+    }
   }
 
+  schedulerDriver = new BetterTestSchedulerDriver
   var registry: Registry = _
 
   def started(broker: Broker) {
@@ -105,8 +120,8 @@ class KafkaMesosTestCase extends net.elodina.mesos.test.MesosTestCase {
     storageFile.delete()
     Cluster.storage = new FsStorage(storageFile)
 
-    Config.api = "http://localhost:7000"
-    Config.zk = "localhost"
+    val newConfig = Config.get.copy(api = "http://localhost:7000", zk = "localhost")
+    Config.set(newConfig)
 
     MockWallClock.overrideNow(None)
     registry = new ProductionRegistry() with MockKafkaDistribution with MockWallClockComponent
@@ -132,7 +147,7 @@ class KafkaMesosTestCase extends net.elodina.mesos.test.MesosTestCase {
 
   def startZkServer(): ZkClient = {
     val port = Net.findAvailPort
-    Config.zk = s"localhost:$port"
+    Config.set(Config.get.copy(zk = s"localhost:$port"))
 
     zkDir = File.createTempFile(getClass.getName, null)
     zkDir.delete()
@@ -164,7 +179,7 @@ class KafkaMesosTestCase extends net.elodina.mesos.test.MesosTestCase {
 
   def startHttpServer() {
     registry.httpServer.initLogging()
-    Config.api = "http://localhost:0"
+    Config.set(Config.get.copy(api = "http://localhost:0"))
     registry.httpServer.start()
   }
 

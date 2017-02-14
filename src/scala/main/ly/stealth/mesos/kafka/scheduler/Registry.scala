@@ -19,7 +19,7 @@ package ly.stealth.mesos.kafka.scheduler
 import ly.stealth.mesos.kafka.scheduler.http.api._
 import ly.stealth.mesos.kafka.scheduler.http.{HttpServerComponent, HttpServerComponentImpl}
 import ly.stealth.mesos.kafka.scheduler.mesos._
-import ly.stealth.mesos.kafka.{ClockComponent, Cluster, WallClockComponent}
+import ly.stealth.mesos.kafka.{ClockComponent, Cluster, Config, ConfigComponent, WallClockComponent}
 
 trait HttpApiComponent
   extends BrokerApiComponent
@@ -42,6 +42,8 @@ trait Registry
   with BrokerTaskManagerComponent
   with HttpApiComponent
   with EventLoopComponent
+  with VolumeManagerComponent
+  with ConfigComponent
 {
 
 }
@@ -64,6 +66,8 @@ class ProductionRegistry
     with PartitionApiComponentImpl
     with QuotaApiComponentImpl
     with DefaultEventLoopComponent
+    with VolumeManagerComponentImpl
 {
   val cluster = Cluster.load()
+  def config = Config.get
 }

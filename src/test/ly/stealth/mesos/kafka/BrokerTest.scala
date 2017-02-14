@@ -228,10 +228,10 @@ class BrokerTest extends KafkaMesosTestCase {
   def getReservations_volume = {
     broker.cpus = 2
     broker.mem = 200
-    broker.volume = "test"
+    broker.volumes = Seq(StaticVolume("test"))
 
     val reservation = broker.getReservation(offer("cpus:2; mem:100; ports:1000; disk(role,principal)[test:mount_point]:100"))
-    val resource = resources("cpus:2; mem:100; ports:1000; disk(role,principal)[test:data]:100")
+    val resource = resources("cpus:2; mem:100; ports:1000; disk(role,principal)[test:mount_point]:100")
     assertEquals(resource, reservation.toResources)
   }
 
@@ -259,7 +259,7 @@ class BrokerTest extends KafkaMesosTestCase {
     broker.cpus = 2
     broker.cpus = 2
     broker.mem = 200
-    broker.volume = "test"
+    broker.volumes = Seq(StaticVolume("test"))
 
     val persistentVolumeResource = diskResourceWithSource(
       "disk(role,principal)[test:mount_point]:100",
@@ -267,14 +267,14 @@ class BrokerTest extends KafkaMesosTestCase {
       "/mnt/path")
 
 
-    val thisOffer = offer("").toBuilder().
+    val thisOffer = offer("").toBuilder.
       addAllResources(resources("cpus:2; mem:100; ports:1000")).
       addResources(persistentVolumeResource).
       build()
 
     val reservation = broker.getReservation(thisOffer)
 
-    assertEquals(reservation.diskSource, persistentVolumeResource.getDisk().getSource())
+    assertEquals(reservation.volumes.head, persistentVolumeResource)
   }
 
   @Test
@@ -447,7 +447,9 @@ class BrokerTest extends KafkaMesosTestCase {
     broker.mem = 128
     broker.heap = 128
     broker.port = new Range("0..100")
-    broker.volume = "volume"
+    broker.volumes = Seq(
+      StaticVolume("abc"),
+      DynamicVolume(1000, "data", "test", DynamicVolumeState.Ready))
     broker.bindAddress = new Util.BindAddress("192.168.0.1")
     broker.syslog = true
 
@@ -676,7 +678,7 @@ class BrokerTest extends KafkaMesosTestCase {
   def Task_toJson_fromJson {
     val task = Task("id", "slave", "executor", "host", parseMap("a=1,b=2").toMap)
     task.state = State.RUNNING
-    task.endpoint = new Endpoint("localhost:9092")
+    task.endpoint = Endpoint("localhost", 9092)
 
     val read = JsonUtil.fromJson[Task](JsonUtil.toJson(task))
     BrokerTest.assertTaskEquals(task, read)
@@ -694,7 +696,7 @@ object BrokerTest {
     assertEquals(expected.mem, actual.mem)
     assertEquals(expected.heap, actual.heap)
     assertEquals(expected.port, actual.port)
-    assertEquals(expected.volume, actual.volume)
+    assertEquals(expected.volumes, actual.volumes)
     assertEquals(expected.bindAddress, actual.bindAddress)
     assertEquals(expected.syslog, actual.syslog)
 
